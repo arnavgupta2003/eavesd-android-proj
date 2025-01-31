@@ -18,7 +18,7 @@ import java.util.*
 class BackService : Service() {
 
     companion object {
-        private const val TAG = "EAVESD"
+        private const val TAG = "EAVESD-BackSer"
     }
 
     private external fun sysinfo_procs(): Int
@@ -30,18 +30,28 @@ class BackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun storeJsonObjectsToTimestampFolder(context: Context, jsonObject: Any) {
-        val folderPath = "${Environment.getExternalStorageDirectory()}/eaves-nsl-data"
-        val folder = File(folderPath).apply { if (!exists()) mkdirs() }
+        val externalFolderPath = "${Environment.getExternalStorageDirectory()}/eaves-nsl-data"
+        val externalFolder = File(externalFolderPath).apply { if (!exists()) mkdirs() }
 
         val fileName = "data-${System.currentTimeMillis()}.json"
-        val file = File(folder, fileName)
+        val externalFile = File(externalFolder, fileName)
 
         try {
-            FileWriter(file).use { it.write(Gson().toJson(jsonObject)) }
-            Log.d(TAG, "JSON object stored successfully: $file")
+            FileWriter(externalFile).use { it.write(Gson().toJson(jsonObject)) }
+            Log.d(TAG, "JSON object stored successfully: $externalFile")
         } catch (e: IOException) {
-            Log.e(TAG, "Error storing JSON object: ${e.message}")
+            Log.e(TAG, "Error storing JSON object in external storage: ${e.message}, falling back to internal storage")
+
+            // Fallback to app's local storage
+            val internalFile = File(context.filesDir, fileName)
+            try {
+                FileWriter(internalFile).use { it.write(Gson().toJson(jsonObject)) }
+                Log.d(TAG, "JSON object stored successfully in internal storage: $internalFile")
+            } catch (internalException: IOException) {
+                Log.e(TAG, "Error storing JSON object in internal storage: ${internalException.message}")
+            }
         }
+        Log.d(TAG, "Ended Data Collection, Filename: $fileName")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

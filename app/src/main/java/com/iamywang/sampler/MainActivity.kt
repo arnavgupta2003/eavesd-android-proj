@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private val brand = Build.BRAND
     private val version = Build.VERSION.RELEASE
     private val sdk = Build.VERSION.SDK_INT
+    private val LOG_TAG = "EAVESD-MainAct"
 
     private val requestManageStoragePermissionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -50,7 +51,7 @@ class MainActivity : AppCompatActivity() {
         globalList.add(ListItem(2, "Android $version (SDK $sdk)", Date().toString()))
         setList(globalList, binding.mainList)
 
-        Log.d("EAVESD", "Starting Data Collection")
+        Log.d(LOG_TAG, "Starting Data Collection")
         startService(Intent(this, BackService::class.java))
     }
 
