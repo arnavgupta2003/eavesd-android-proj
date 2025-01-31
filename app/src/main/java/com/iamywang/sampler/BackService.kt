@@ -1,161 +1,85 @@
-// ============================================================================
-// This file is part of EavesDroid.
-//
-// Author: iamywang
-// Date Created: Jan 27, 2024
-// ============================================================================
 package com.iamywang.sampler
 
-import android.app.IntentService
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.IBinder
-import com.alibaba.fastjson.JSON
-import com.alibaba.fastjson.JSONObject
-import java.util.*
-
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Environment
+import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import com.google.gson.Gson
+import org.json.JSONObject
 import java.io.File
 import java.io.FileWriter
+import java.io.IOException
+import java.util.*
 
 class BackService : Service() {
+
+    companion object {
+        private const val TAG = "EAVESD"
+    }
 
     private external fun sysinfo_procs(): Int
     private external fun statvfs_f_bavail(): Long
     private external fun sysconf_avphys_pages(): Long
     private external fun statvfs_f_ffree(): Long
     private external fun sysinfo_freeram(): Long
-    private external fun sysinfo_sharedram(): Long
-    private external fun get_avphys_pages(): Long
 
-    override fun onBind(arg0: Intent): IBinder? {
-        return null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun checkStoragePermissions(context: Context): Boolean {
-        val hasPermissions = context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        if (!hasPermissions) {
-            // Request permissions if not granted - Note that this should be handled in an Activity, not Service
-            // context.requestPermissions() cannot be called in a Service, permissions should be requested in the Activity before starting the Service
-            Log.e("EAVESD", "Storage permissions are not granted.")
+    private fun storeJsonObjectsToTimestampFolder(context: Context, jsonObject: Any) {
+        val folderPath = "${Environment.getExternalStorageDirectory()}/eaves-nsl-data"
+        val folder = File(folderPath).apply { if (!exists()) mkdirs() }
+
+        val fileName = "data-${System.currentTimeMillis()}.json"
+        val file = File(folder, fileName)
+
+        try {
+            FileWriter(file).use { it.write(Gson().toJson(jsonObject)) }
+            Log.d(TAG, "JSON object stored successfully: $file")
+        } catch (e: IOException) {
+            Log.e(TAG, "Error storing JSON object: ${e.message}")
         }
-        return hasPermissions
     }
 
-    fun storeJsonObjectsToTimestampFolder(context: Context, jsonObject: Any) {
-        // Check if storage permissions are granted
-//        if (checkStoragePermissions(context)) {
-            // Create a timestamped folder name
-            val timestamp = System.currentTimeMillis().toString()
-            val folderName = "eaves-nsl-data"
-
-            // Create the folder in the external storage
-            val folderPath = Environment.getExternalStorageDirectory().toString() + "/$folderName"
-            val folder = File(folderPath)
-            if (!folder.exists()) {
-                folder.mkdirs()
-            }
-
-            // Convert the JSON object to a string
-            val gson = Gson()
-            val jsonString = gson.toJson(jsonObject)
-
-            // Create a file within the folder and write the JSON string to it
-            val fileName = "data-$timestamp.json"
-            val filePath = "$folderPath/$fileName"
-            val file = File(filePath)
-            try {
-                FileWriter(file).use { writer ->
-                    writer.write(jsonString)
-                }
-                Log.d("EAVESD", "JSON object stored successfully: $filePath")
-            } catch (e: IOException) {
-                Log.e("EAVESD", "Error storing JSON object: ${e.message}")
-            }
-        Log.d("EAVESD", "Data Collection Ended")
-//        }
-    }
-
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-        // Create and start a new thread
-        val thread = Thread {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Thread {
             val time = Date().toString()
-            val total = 10000L
-            val init = System.currentTimeMillis()
-            var i = 0L
+            val iterations = 10_000 // 10,000 samples
+            val vs = Array(5) { StringBuilder() }
 
-            var vs1 = ""
-            var vs2 = ""
-            var vs3 = ""
-            var vs4 = ""
-            var vs5 = ""
+            val deviceInfo = mapOf(
+                "model" to "${Build.MANUFACTURER} ${Build.BRAND} ${Build.MODEL}",
+                "version" to "${Build.VERSION.RELEASE} ${Build.VERSION.SDK_INT}",
+                "time" to time
+            )
 
-            val model = Build.MODEL
-            val manufacturer = Build.MANUFACTURER
-            val brand = Build.BRAND
-            val version = Build.VERSION.RELEASE
-            val sdk = Build.VERSION.SDK_INT
+            val startTime = SystemClock.elapsedRealtime() // Start timestamp
 
-            while (true) {
-                val t = System.currentTimeMillis() - init
-                if (t > i) {
-                    val v1 = sysinfo_procs()
-                    val v2 = statvfs_f_bavail()
-                    val v3 = sysconf_avphys_pages()
-                    val v4 = statvfs_f_ffree()
-                    val v5 = sysinfo_freeram()
-                    var st = "( "+v1+","+v2+","+v3+","+v4+","+v5+" )"
-//                    Log.d("EAVESD Value", st)
+            for (i in 0 until iterations) {
+                val values = arrayOf(
+                    sysinfo_procs(), statvfs_f_bavail(), sysconf_avphys_pages(),
+                    statvfs_f_ffree(), sysinfo_freeram()
+                )
 
+                values.forEachIndexed { index, value ->
+                    vs[index].append(if (i == iterations - 1) "$value" else "$value,")
+                }
 
-                    vs1 += "$v1,"
-                    vs2 += "$v2,"
-                    vs3 += "$v3,"
-                    vs4 += "$v4,"
-                    vs5 += "$v5,"
-                    i++
-
-                    if (t > total - 1) {
-                        vs1 += "$v1"
-                        vs2 += "$v2"
-                        vs3 += "$v3"
-                        vs4 += "$v4"
-                        vs5 += "$v5"
-
-                        // Prepare JSON object with system data
-                        val obj = JSONObject()
-                        obj["model"] = "$manufacturer $brand $model"
-                        obj["version"] = "$version $sdk"
-                        obj["time"] = time
-                        obj["vs1"] = vs1
-                        obj["vs2"] = vs2
-                        obj["vs3"] = vs3
-                        obj["vs4"] = vs4
-                        obj["vs5"] = vs5
-
-                        // Store JSON objects locally in external storage
-                        storeJsonObjectsToTimestampFolder(this@BackService, obj)
-
-
-                        break
-                    }
+                // Ensure exactly 1 millisecond per sample
+                val elapsed = SystemClock.elapsedRealtime() - startTime
+                val expectedTime = i + 1 // Expected time in milliseconds
+                if (elapsed < expectedTime) {
+                    Thread.sleep(expectedTime - elapsed)
                 }
             }
-        }
 
-        // Start the thread
-        thread.start()
+            storeJsonObjectsToTimestampFolder(this@BackService, deviceInfo + vs.mapIndexed { idx, sb -> "vs${idx + 1}" to sb.toString() })
+        }.start()
 
         return START_STICKY
     }
+
 }

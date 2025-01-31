@@ -2,7 +2,7 @@ package com.iamywang.sampler
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager.PERMISSION_GRANTED
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,9 +18,6 @@ import androidx.core.content.ContextCompat
 import com.alibaba.fastjson.JSON
 import com.alibaba.fastjson.JSONObject
 import com.iamywang.sampler.databinding.ActivityMainBinding
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.*
 
@@ -33,94 +30,54 @@ class MainActivity : AppCompatActivity() {
     private val version = Build.VERSION.RELEASE
     private val sdk = Build.VERSION.SDK_INT
 
-    // Launchers for permissions
-//    private val requestWritePermissionLauncher =
-//        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-//            if (isGranted) {
-//                Toast.makeText(this, "WRITE_EXTERNAL_STORAGE permission granted", Toast.LENGTH_SHORT).show()
-//            } else {
-//                Toast.makeText(this, "WRITE_EXTERNAL_STORAGE permission denied", Toast.LENGTH_SHORT).show()
-//            }
-//        }
-
-//    private val requestReadPermissionLauncher =
-//        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-//            if (isGranted) {
-//                Toast.makeText(this, "READ_EXTERNAL_STORAGE permission granted", Toast.LENGTH_SHORT).show()
-//            } else {
-//                Toast.makeText(this, "READ_EXTERNAL_STORAGE permission denied", Toast.LENGTH_SHORT).show()
-//            }
-//        }
+    private val requestManageStoragePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                Toast.makeText(this, "Storage permission granted", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Storage permission denied", Toast.LENGTH_SHORT).show()
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        requestStoragePermissions()
 
         globalList.add(ListItem(1, "$manufacturer $brand $model", Date().toString()))
         globalList.add(ListItem(2, "Android $version (SDK $sdk)", Date().toString()))
         setList(globalList, binding.mainList)
+
         Log.d("EAVESD", "Starting Data Collection")
-        val service = Intent(baseContext, BackService::class.java)
-        startService(service)
+        startService(Intent(this, BackService::class.java))
     }
 
-//    private fun requestPermissionsIndividually() {
-//        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PERMISSION_GRANTED) {
-//            requestWritePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-//        } else {
-//            Toast.makeText(this, "WRITE_EXTERNAL_STORAGE permission already granted", Toast.LENGTH_SHORT).show()
-//        }
-//
-//        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PERMISSION_GRANTED) {
-//            requestReadPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-//        } else {
-//            Toast.makeText(this, "READ_EXTERNAL_STORAGE permission already granted", Toast.LENGTH_SHORT).show()
-//        }
-//
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-//            requestManageStoragePermission()
-//        }
-//    }
-
-    private fun requestManageStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-            intent.data = Uri.parse("package:" + this.packageName)
-            startActivity(intent)
+    private fun requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    .setData(Uri.parse("package:$packageName"))
+                requestManageStoragePermissionLauncher.launch(intent)
+            }
         } else {
-            Toast.makeText(this, "MANAGE_EXTERNAL_STORAGE permission already granted", Toast.LENGTH_SHORT).show()
+            val permissions = arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            val deniedPermissions = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (deniedPermissions.isNotEmpty()) {
+                requestPermissions(deniedPermissions.toTypedArray(), PERMISSION_REQUEST_CODE)
+            }
         }
     }
 
-    fun trainNetwork(view: View) {
-        val api = "http://100.84.210.82:8000"
-        val obj = JSONObject()
-        obj["model"] = "$manufacturer $brand $model"
-        obj["version"] = "$version $sdk"
-
-        val okHttpClient = OkHttpClient()
-        val mediaType = "application/json; charset=utf-8".toMediaType()
-        val requestBody = JSON.toJSONString(obj).toRequestBody(mediaType)
-        val request = Request.Builder()
-            .url("$api/train/")
-            .post(requestBody)
-            .build()
-        okHttpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                println("failed")
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                println("success")
-            }
-        })
-    }
 
     private fun setList(list: LinkedList<ListItem>, listView: ListView) {
-        val mAdapter = ListItemAdapter(list, this)
-        listView.adapter = mAdapter
+        listView.adapter = ListItemAdapter(list, this)
     }
 
     companion object {
